@@ -7,6 +7,38 @@
       <el-button :icon="Refresh" @click="loadUsers">刷新</el-button>
     </div>
 
+    <!-- 搜索栏 -->
+    <div class="search-bar">
+      <el-input
+        v-model="searchForm.username"
+        placeholder="用户名（模糊搜索）"
+        clearable
+        style="width: 200px"
+        @keyup.enter="handleSearch"
+      />
+      <el-select
+        v-model="searchForm.status"
+        placeholder="状态"
+        clearable
+        style="width: 130px"
+      >
+        <el-option label="启用" :value="1" />
+        <el-option label="禁用" :value="0" />
+      </el-select>
+      <el-select
+        v-model="searchForm.roleLevel"
+        placeholder="权限级别"
+        clearable
+        style="width: 150px"
+      >
+        <el-option label="用户权限" :value="1" />
+        <el-option label="管理员权限" :value="2" />
+        <el-option label="超级管理员权限" :value="3" />
+      </el-select>
+      <el-button type="primary" :icon="Search" @click="handleSearch">搜索</el-button>
+      <el-button :icon="RefreshLeft" @click="handleReset">重置</el-button>
+    </div>
+
     <el-table
       v-loading="loading"
       :data="users"
@@ -18,6 +50,11 @@
       <el-table-column prop="name" label="姓名" width="100" />
       <el-table-column prop="gender" label="性别" width="80" />
       <el-table-column prop="phone" label="联系方式" width="140" />
+      <el-table-column label="所属部门" width="140">
+        <template #default="{ row }">
+          <span>{{ row.departmentName || '-' }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="权限级别" width="120">
         <template #default="{ row }">
           <el-tag :type="roleTagType(row.roleLevel)">
@@ -45,6 +82,20 @@
       </el-table-column>
     </el-table>
 
+    <!-- 分页 -->
+    <div class="pagination-wrapper">
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.size"
+        :page-sizes="[5, 10, 20, 50]"
+        :total="pagination.total"
+        layout="total, sizes, prev, pager, next, jumper"
+        background
+        @size-change="handleSizeChange"
+        @current-change="loadUsers"
+      />
+    </div>
+
     <el-dialog
       v-model="dialogVisible"
       :title="isEdit ? '编辑用户' : '添加用户'"
@@ -71,6 +122,21 @@
         </el-form-item>
         <el-form-item label="联系方式" prop="phone">
           <el-input v-model="formData.phone" placeholder="请输入联系方式" />
+        </el-form-item>
+        <el-form-item label="所属部门" prop="departmentId">
+          <el-select
+            v-model="formData.departmentId"
+            placeholder="请选择所属部门（可选）"
+            clearable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="dept in departments"
+              :key="dept.id"
+              :label="dept.name"
+              :value="dept.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="密码" prop="password">
           <el-input
@@ -106,9 +172,9 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { accountApi } from '@/api'
+import { accountApi, departmentApi } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Refresh } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, Refresh, Search, RefreshLeft } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const loading = ref(false)
@@ -118,6 +184,21 @@ const isEdit = ref(false)
 const editId = ref<number>(0)
 
 const users = ref<any[]>([])
+const departments = ref<any[]>([])
+
+// 搜索条件
+const searchForm = reactive({
+  username: '',
+  status: null as number | null,
+  roleLevel: null as number | null
+})
+
+// 分页状态
+const pagination = reactive({
+  page: 0, // 后端页码从 0 开始
+  size: 10,
+  total: 0
+})
 
 const formRef = ref<FormInstance>()
 
@@ -126,6 +207,7 @@ const formData = reactive({
   name: '',
   gender: '男',
   phone: '',
+  departmentId: null as number | null,
   password: '',
   roleLevel: 1,
   status: 1,
@@ -156,7 +238,15 @@ function roleTagType(level: number): 'info' | 'warning' | 'danger' {
 async function loadUsers() {
   loading.value = true
   try {
-    users.value = await accountApi.getAll()
+    const res: any = await accountApi.getPage({
+      username: searchForm.username || undefined,
+      status: searchForm.status,
+      roleLevel: searchForm.roleLevel,
+      page: pagination.page,
+      size: pagination.size
+    })
+    users.value = res.list || []
+    pagination.total = res.totalElements || 0
   } catch (error: any) {
     ElMessage.error(error.message || '加载用户列表失败')
   } finally {
@@ -164,11 +254,39 @@ async function loadUsers() {
   }
 }
 
+async function loadDepartments() {
+  try {
+    departments.value = await departmentApi.getAll()
+  } catch (error: any) {
+    ElMessage.error(error.message || '加载部门列表失败')
+  }
+}
+
+function handleSearch() {
+  pagination.page = 0
+  loadUsers()
+}
+
+function handleReset() {
+  searchForm.username = ''
+  searchForm.status = null
+  searchForm.roleLevel = null
+  pagination.page = 0
+  loadUsers()
+}
+
+function handleSizeChange(size: number) {
+  pagination.size = size
+  pagination.page = 0
+  loadUsers()
+}
+
 function resetForm() {
   formData.username = ''
   formData.name = ''
   formData.gender = '男'
   formData.phone = ''
+  formData.departmentId = null
   formData.password = ''
   formData.roleLevel = 1
   formData.status = 1
@@ -191,6 +309,7 @@ function openEditDialog(row: any) {
   formData.name = row.name
   formData.gender = row.gender || '男'
   formData.phone = row.phone || ''
+  formData.departmentId = row.departmentId ?? null
   formData.roleLevel = row.roleLevel
   formData.status = row.status
   formData.isSuper = row.isSuper
@@ -204,9 +323,12 @@ async function handleSubmit() {
 
     submitting.value = true
     try {
-      const data = { ...formData }
+      const data: any = { ...formData }
       if (data.password === '') {
         delete data.password
+      }
+      if (data.departmentId === undefined) {
+        data.departmentId = null
       }
 
       if (isEdit.value) {
@@ -249,6 +371,7 @@ async function handleDelete(row: any) {
 
 onMounted(() => {
   loadUsers()
+  loadDepartments()
 })
 </script>
 
@@ -263,5 +386,19 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   margin-bottom: 20px;
+}
+
+.search-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.pagination-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 </style>
